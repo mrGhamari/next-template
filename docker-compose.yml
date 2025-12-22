@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  web:
+    container_name: trend-panel
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: ${NODE_VERSION:-22-alpine}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-production}
+    image: trend-panel:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-production}
+      PORT: 3000
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
