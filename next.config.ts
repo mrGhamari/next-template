@@ -6,9 +6,9 @@ const nextConfig: NextConfig = {
 };
 
 export default withSentryConfig(nextConfig, {
-  org: 'trend-sentry',
-  project: 'trend-panel-ui',
-  sentryUrl: 'https://sentry.hamravesh.com/',
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  sentryUrl: process.env.SENTRY_URL,
 
   silent: !process.env.CI,
 
