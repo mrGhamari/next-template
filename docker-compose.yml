@@ -2,17 +2,10 @@ version: "3.8"
 
 services:
   web:
-    container_name: trend-panel
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        NODE_VERSION: ${NODE_VERSION:-22-alpine}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-production}
-    image: trend-panel:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-trend-panel}
+    image: ${DOCKER_REGISTRY}${IMAGE_NAME}:${IMAGE_TAG:-latest}
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       APP_ENV: ${APP_ENV:-production}

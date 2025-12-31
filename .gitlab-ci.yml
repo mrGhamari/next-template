@@ -1,0 +1,209 @@
+# ===========================================
+# Frontend Pipeline - Next.js
+# ===========================================
+
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_BUILDKIT: "1"
+  FULL_IMAGE: ${DOCKER_REGISTRY}${IMAGE_NAME}
+  NODE_VERSION: "22-alpine"
+
+# ===========================================
+# Build Image (Staging - Auto on develop)
+# ===========================================
+build:staging:
+  stage: build
+  image: docker:27
+  before_script:
+    - |
+      echo "Validating required variables..."
+      for var in DOCKER_REGISTRY DOCKER_REGISTRY_USER DOCKER_REGISTRY_PASSWORD IMAGE_NAME; do
+        eval "val=\$$var"
+        [ -z "$val" ] && echo "ERROR: $var is not set" && exit 1
+      done
+    - echo "$DOCKER_REGISTRY_PASSWORD" | docker login -u "$DOCKER_REGISTRY_USER" --password-stdin "$DOCKER_REGISTRY"
+    - docker pull $FULL_IMAGE:cache 2>/dev/null || true
+  script:
+    - |
+      CACHE_FLAG="--cache-from $FULL_IMAGE:cache"
+      [ "$NO_CACHE" = "true" ] && CACHE_FLAG="--no-cache"
+      docker build \
+        $CACHE_FLAG \
+        --build-arg NODE_VERSION=${NODE_VERSION} \
+        --build-arg NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+        --build-arg NEXT_PUBLIC_APP_ENV=staging \
+        -t $FULL_IMAGE:$CI_COMMIT_SHA \
+        -t $FULL_IMAGE:$CI_COMMIT_SHORT_SHA \
+        -t $FULL_IMAGE:staging \
+        -t $FULL_IMAGE:cache \
+        -f Dockerfile .
+    - docker push $FULL_IMAGE:$CI_COMMIT_SHA
+    - docker push $FULL_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $FULL_IMAGE:staging
+    - docker push $FULL_IMAGE:cache
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# ===========================================
+# Build Image (Feature Branches - Manual)
+# ===========================================
+build:feature:
+  stage: build
+  image: docker:27
+  before_script:
+    - |
+      echo "Validating required variables..."
+      for var in DOCKER_REGISTRY DOCKER_REGISTRY_USER DOCKER_REGISTRY_PASSWORD IMAGE_NAME; do
+        eval "val=\$$var"
+        [ -z "$val" ] && echo "ERROR: $var is not set" && exit 1
+      done
+    - echo "$DOCKER_REGISTRY_PASSWORD" | docker login -u "$DOCKER_REGISTRY_USER" --password-stdin "$DOCKER_REGISTRY"
+    - docker pull $FULL_IMAGE:cache 2>/dev/null || true
+  script:
+    - |
+      CACHE_FLAG="--cache-from $FULL_IMAGE:cache"
+      [ "$NO_CACHE" = "true" ] && CACHE_FLAG="--no-cache"
+      docker build \
+        $CACHE_FLAG \
+        --build-arg NODE_VERSION=${NODE_VERSION} \
+        --build-arg NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+        --build-arg NEXT_PUBLIC_APP_ENV=development \
+        -t $FULL_IMAGE:$CI_COMMIT_SHA \
+        -t $FULL_IMAGE:$CI_COMMIT_SHORT_SHA \
+        -t $FULL_IMAGE:$CI_COMMIT_REF_SLUG \
+        -f Dockerfile .
+    - docker push $FULL_IMAGE:$CI_COMMIT_SHA
+    - docker push $FULL_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $FULL_IMAGE:$CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH !~ /^(main|master|develop)$/
+      when: manual
+  allow_failure: true
+
+# ===========================================
+# Deploy Base Template
+# ===========================================
+.deploy-base:
+  stage: deploy
+  image: alpine:3.21
+  before_script:
+    - |
+      apk add --no-cache openssh-client
+      eval $(ssh-agent -s)
+      cat "$SSH_PRIVATE_KEY" | tr -d '\r' > /tmp/ssh_key
+      echo "" >> /tmp/ssh_key
+      chmod 600 /tmp/ssh_key
+      ssh-add /tmp/ssh_key
+      rm -f /tmp/ssh_key
+      mkdir -p ~/.ssh
+      chmod 700 ~/.ssh
+      ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+  script:
+    - echo "Deploying to ${DEPLOY_PATH}..."
+
+    # Generate .env from template
+    - |
+      eval "cat <<ENVEOF
+      $(cat .env.template)
+      ENVEOF" > /tmp/.env
+    - echo "Generated .env with $(wc -l < /tmp/.env) lines"
+
+    # Upload files
+    - ssh -p "${SSH_PORT:-22}" ${SSH_USER}@${SSH_HOST} "mkdir -p ${DEPLOY_PATH}"
+    - scp -P "${SSH_PORT:-22}" /tmp/.env ${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/.env
+    - scp -P "${SSH_PORT:-22}" docker-compose.yml ${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/docker-compose.yml
+
+    # Deploy with rollback support
+    - |
+      ssh -p "${SSH_PORT:-22}" ${SSH_USER}@${SSH_HOST} << ENDSSH
+        set -e
+        cd ${DEPLOY_PATH}
+
+        echo "Logging into registry..."
+        echo "${DOCKER_REGISTRY_PASSWORD}" | docker login -u "${DOCKER_REGISTRY_USER}" --password-stdin "${DOCKER_REGISTRY}"
+
+        # Backup current image for rollback
+        CURRENT_IMAGE=\$(docker compose images web -q 2>/dev/null || true)
+        if [ -n "\$CURRENT_IMAGE" ]; then
+          echo "Backing up current image: \$CURRENT_IMAGE"
+          docker tag "\$CURRENT_IMAGE" "${FULL_IMAGE}:rollback" 2>/dev/null || true
+        fi
+
+        echo "Pulling new image..."
+        docker compose pull web
+
+        echo "Restarting services..."
+        docker compose up -d --force-recreate
+
+        echo "Waiting for web to be healthy..."
+        HEALTHY=false
+        for i in \$(seq 1 12); do
+          if docker compose exec -T web node -e "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
+            echo "Web is healthy!"
+            HEALTHY=true
+            break
+          fi
+          echo "Waiting... (attempt \$i/12)"
+          sleep 5
+        done
+
+        if [ "\$HEALTHY" = "false" ]; then
+          echo "Web not healthy! Attempting rollback..."
+          docker compose logs --tail=50 web
+
+          if docker image inspect "${FULL_IMAGE}:rollback" >/dev/null 2>&1; then
+            echo "Rolling back to previous image..."
+            docker tag "${FULL_IMAGE}:rollback" "${FULL_IMAGE}:${IMAGE_TAG}"
+            docker compose up -d --force-recreate
+            echo "Rollback complete. Please investigate the failed deployment."
+          fi
+          exit 1
+        fi
+
+        # Cleanup rollback image on success
+        docker rmi "${FULL_IMAGE}:rollback" 2>/dev/null || true
+
+        docker compose ps
+        echo "Deployment complete!"
+      ENDSSH
+
+# ===========================================
+# Deploy Staging (develop branch - Auto)
+# ===========================================
+deploy:staging:
+  extends: .deploy-base
+  variables:
+    DEPLOY_PATH: /srv/panel-staging
+    IMAGE_TAG: staging
+    APP_ENV: staging
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  needs:
+    - job: build:staging
+  environment:
+    name: staging
+    url: https://panel-stage.trendagency.ir
+
+# ===========================================
+# Deploy Develop (feature branches - Manual)
+# ===========================================
+deploy:feature:
+  extends: .deploy-base
+  variables:
+    DEPLOY_PATH: /srv/panel-develop
+    IMAGE_TAG: $CI_COMMIT_REF_SLUG
+    APP_ENV: development
+    COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}_feature
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH !~ /^(main|master|develop)$/
+      when: manual
+  allow_failure: true
+  needs:
+    - job: build:feature
+      optional: false
+  environment:
+    name: feature/$CI_COMMIT_REF_SLUG
+    url: https://panel-develop.trendagency.ir
