@@ -43,6 +43,7 @@ next-env.d.ts
 # IDEs and editors
 .vscode/
 .claude
+.idea
 
 # Sentry Config File
 .env.sentry-build-plugin

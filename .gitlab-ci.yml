@@ -25,7 +25,8 @@ build:staging:
         [ -z "$val" ] && echo "ERROR: $var is not set" && exit 1
       done
     - echo "$DOCKER_REGISTRY_PASSWORD" | docker login -u "$DOCKER_REGISTRY_USER" --password-stdin "$DOCKER_REGISTRY"
-    - docker pull $FULL_IMAGE:cache 2>/dev/null || true
+    - echo "Pulling cache image..."
+    - timeout 60 docker pull $FULL_IMAGE:cache || echo "No cache image found, building from scratch"
   script:
     - |
       CACHE_FLAG="--cache-from $FULL_IMAGE:cache"
@@ -61,7 +62,8 @@ build:feature:
         [ -z "$val" ] && echo "ERROR: $var is not set" && exit 1
       done
     - echo "$DOCKER_REGISTRY_PASSWORD" | docker login -u "$DOCKER_REGISTRY_USER" --password-stdin "$DOCKER_REGISTRY"
-    - docker pull $FULL_IMAGE:cache 2>/dev/null || true
+    - echo "Pulling cache image..."
+    - timeout 60 docker pull $FULL_IMAGE:cache || echo "No cache image found, building from scratch"
   script:
     - |
       CACHE_FLAG="--cache-from $FULL_IMAGE:cache"
