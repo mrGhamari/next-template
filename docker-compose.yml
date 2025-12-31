@@ -2,8 +2,6 @@ services:
   web:
     container_name: ${COMPOSE_PROJECT_NAME:-trend-panel}
     image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG:-latest}
-    ports:
-      - "${PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       APP_ENV: ${APP_ENV:-production}
@@ -15,3 +13,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - traefik_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.trend-panel.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.trend-panel.entrypoints=websecure"
+      - "traefik.http.routers.trend-panel.middlewares=public-chain@file"
+      - "traefik.http.services.trend-panel.loadbalancer.server.port=3000"
+      - "traefik.docker.network=traefik_network"
+
+networks:
+  traefik_network:
+    external: true
