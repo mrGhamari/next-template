@@ -1,9 +1,7 @@
-version: "3.8"
-
 services:
   web:
     container_name: ${COMPOSE_PROJECT_NAME:-trend-panel}
-    image: ${DOCKER_REGISTRY}${IMAGE_NAME}:${IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG:-latest}
     ports:
       - "${PORT:-3000}:3000"
     environment:
@@ -12,13 +10,7 @@ services:
       PORT: 3000
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
       interval: 30s
       timeout: 5s
       retries: 3
