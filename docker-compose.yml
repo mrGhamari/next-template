@@ -1,10 +1,15 @@
+# ===========================================
+# Docker Compose - Production
+# Usage: docker compose up -d
+# ===========================================
+
 services:
   web:
-    container_name: ${COMPOSE_PROJECT_NAME:-trend-panel}
-    image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME}
+    image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
     environment:
       NODE_ENV: production
-      APP_ENV: ${APP_ENV:-production}
+      APP_ENV: ${APP_ENV}
       PORT: 3000
     restart: unless-stopped
     healthcheck:
@@ -17,11 +22,17 @@ services:
       - traefik_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.trend-panel.rule=Host(`${APP_DOMAIN}`)"
-      - "traefik.http.routers.trend-panel.entrypoints=websecure"
-      - "traefik.http.routers.trend-panel.middlewares=public-chain@file"
-      - "traefik.http.services.trend-panel.loadbalancer.server.port=3000"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}.middlewares=public-chain@file"
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=3000"
       - "traefik.docker.network=traefik_network"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
 networks:
   traefik_network:

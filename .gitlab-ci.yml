@@ -40,7 +40,7 @@ build:staging:
         -t $FULL_IMAGE:$CI_COMMIT_SHORT_SHA \
         -t $FULL_IMAGE:staging \
         -t $FULL_IMAGE:cache \
-        -f Dockerfile .
+        -f .docker/Dockerfile .
     - docker push $FULL_IMAGE:$CI_COMMIT_SHA
     - docker push $FULL_IMAGE:$CI_COMMIT_SHORT_SHA
     - docker push $FULL_IMAGE:staging
@@ -76,7 +76,7 @@ build:feature:
         -t $FULL_IMAGE:$CI_COMMIT_SHA \
         -t $FULL_IMAGE:$CI_COMMIT_SHORT_SHA \
         -t $FULL_IMAGE:$CI_COMMIT_REF_SLUG \
-        -f Dockerfile .
+        -f .docker/Dockerfile .
     - docker push $FULL_IMAGE:$CI_COMMIT_SHA
     - docker push $FULL_IMAGE:$CI_COMMIT_SHORT_SHA
     - docker push $FULL_IMAGE:$CI_COMMIT_REF_SLUG
@@ -106,16 +106,8 @@ build:feature:
   script:
     - echo "Deploying to ${DEPLOY_PATH}..."
 
-    # Generate .env file
-    - |
-      cat > /tmp/.env << EOF
-      COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
-      DOCKER_REGISTRY=${DOCKER_REGISTRY}
-      IMAGE_NAME=${IMAGE_NAME}
-      IMAGE_TAG=${IMAGE_TAG}
-      APP_ENV=${APP_ENV}
-      PORT=3000
-      EOF
+    # Generate .env from template
+    - envsubst < .env.template > /tmp/.env
     - echo "Generated .env:"
     - cat /tmp/.env
 
@@ -175,6 +167,11 @@ deploy:staging:
     DEPLOY_PATH: /srv/panel-staging
     IMAGE_TAG: staging
     APP_ENV: staging
+    COMPOSE_PROJECT_NAME: trend-panel-staging
+    APP_DOMAIN: panel-stage.trendagency.ir
+    PORT: "3000"
+    NODE_VERSION: "22-alpine"
+    NEXT_PUBLIC_APP_ENV: staging
   rules:
     - if: $CI_COMMIT_BRANCH == "develop"
   needs:
@@ -184,7 +181,7 @@ deploy:staging:
     url: https://panel-stage.trendagency.ir
 
 # ===========================================
-# Deploy Develop (feature branches - Manual)
+# Deploy Develop (feature branches - Auto after build)
 # ===========================================
 deploy:feature:
   extends: .deploy-base
@@ -192,14 +189,16 @@ deploy:feature:
     DEPLOY_PATH: /srv/panel-develop
     IMAGE_TAG: $CI_COMMIT_REF_SLUG
     APP_ENV: development
-    COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}_feature
+    COMPOSE_PROJECT_NAME: trend-panel-dev
+    APP_DOMAIN: panel-develop.trendagency.ir
+    PORT: "3000"
+    NODE_VERSION: "22-alpine"
+    NEXT_PUBLIC_APP_ENV: development
   rules:
     - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH !~ /^(main|master|develop)$/
-      when: manual
   allow_failure: true
   needs:
     - job: build:feature
-      optional: false
   environment:
     name: feature/$CI_COMMIT_REF_SLUG
     url: https://panel-develop.trendagency.ir
