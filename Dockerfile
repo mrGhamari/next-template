@@ -43,10 +43,10 @@ FROM base AS runner
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    HOSTNAME=0.0.0.0   
+    HOSTNAME=0.0.0.0
 
-
-RUN addgroup -S nextjs -g 1001 \
+RUN apk add --no-cache wget \
+    && addgroup -S nextjs -g 1001 \
     && adduser -S nextjs -u 1001 -G nextjs
 
 
