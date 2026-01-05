@@ -77,6 +77,8 @@ code-review:
       RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
         -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
         -H "Content-Type: application/json" \
+        -H "HTTP-Referer: ${CI_PROJECT_URL}" \
+        -H "X-Title: ${COMPOSE_PROJECT_NAME:-${CI_PROJECT_NAME}}" \
         -d "$REQUEST_JSON")
 
       ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
