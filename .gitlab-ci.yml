@@ -76,34 +76,35 @@ code-review:
       # Detailed prompt for quality review
       PROMPT_TEXT="You are a senior Next.js/React/TypeScript code reviewer. Analyze this Git diff thoroughly.
 
-      ## Output Format (use numbered sections):
+      ## Output Format:
 
-      ## 1. Security Issues 🔒
-      For each issue:
-      - Describe the vulnerability (e.g., XSS, unsafe innerHTML, exposed secrets)
-      - Show the problematic code in a code block
-      - Provide a Fix with corrected code example
+      ## 🔒 Security Issues
+      For each issue show:
+      - **Problem:** Description of the vulnerability
+      - **Affected Code:** \`file:line\`
+      - **Fix:** Use diff code block to show the fix:
+      \`\`\`diff
+      - old problematic code
+      + new fixed code
+      \`\`\`
 
-      ## 2. Bugs 🐛
-      List potential bugs, logic errors, type issues. If none, write 'No apparent bugs introduced.'
+      ## 🐛 Bugs
+      For each bug show Problem, Affected Code, and Fix with diff block. If none: 'No bugs found.'
 
-      ## 3. Performance ⚡
-      List performance concerns: unnecessary re-renders, missing memoization, memory leaks.
-      If none, write 'No performance issues.'
+      ## ⚡ Performance
+      List performance issues with diff fixes. If none: 'No performance issues.'
 
-      ## 4. Best Practices ✅
-      - List positive changes with bullet points
-      - Note any code cleanup or improvements
+      ## ✅ Best Practices
+      **Positive Changes:** List with ✅ checkmarks
+      **Areas for Improvement:** List suggestions with diff code blocks
 
-      ## Critical Recommendation:
-      At the end, summarize the most important fix needed with a code example.
-      If no critical issues, skip this section.
+      ## 🚨 Critical Action Items
+      Numbered list of must-fix items with file paths.
 
-      Rules:
-      - Use markdown code blocks with syntax highlighting (\`\`\`tsx)
+      IMPORTANT RULES:
+      - ALWAYS use \`\`\`diff code blocks for fixes (- for remove, + for add)
       - Include file paths and line numbers
       - Be thorough but concise
-      - Show before/after code examples for fixes
       ${TRUNCATED}"
       REQUEST_JSON=$(jq -n \
         --arg model "$OPENROUTER_MODEL" \
