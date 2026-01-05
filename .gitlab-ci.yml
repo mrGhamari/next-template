@@ -20,9 +20,9 @@ code-review:
   image: alpine:3.21
   variables:
     OPENROUTER_MODEL: "deepseek/deepseek-r1"
-    GIT_DEPTH: 200
-    MAX_DIFF_CHARS: "120000"
-    MAX_OUTPUT_TOKENS: "4000"
+    GIT_DEPTH: 100
+    MAX_DIFF_CHARS: "60000"
+    MAX_OUTPUT_TOKENS: "2500"
   before_script:
     - apk add --no-cache curl jq git
   script:
@@ -32,174 +32,71 @@ code-review:
       # Get base SHA
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
         BASE_SHA="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
-        echo "Using MR diff base: $BASE_SHA"
       else
-        git fetch origin ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-develop} --depth=200
+        git fetch origin ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-develop} --depth=100
         BASE_SHA="origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-develop}"
-        echo "Using target branch: $BASE_SHA"
       fi
 
-      # Get all changed TypeScript/JavaScript files
+      # Get changed files
       CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' 2>/dev/null)
       FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . || echo 0)
 
       if [ "$FILE_COUNT" = "0" ]; then
-        echo "No TypeScript/JavaScript files changed. Skipping review."
+        echo "No TS/JS files changed. Skipping."
         exit 0
       fi
 
-      echo "Changed TS/JS files: $FILE_COUNT"
-      echo "$CHANGED_FILES" | head -20
-      [ "$FILE_COUNT" -gt 20 ] && echo "... and $((FILE_COUNT - 20)) more files"
-      echo ""
+      echo "Files: $FILE_COUNT"
 
-      # Get full diff
+      # Get diff
       FULL_DIFF=$(git diff "$BASE_SHA" HEAD -- $CHANGED_FILES 2>/dev/null)
       DIFF_CHARS=$(echo "$FULL_DIFF" | wc -c)
-      DIFF_LINES=$(echo "$FULL_DIFF" | wc -l)
 
-      echo "Diff size: $DIFF_LINES lines, $DIFF_CHARS characters"
-
-      # Truncate if too large
       if [ "$DIFF_CHARS" -gt "$MAX_DIFF_CHARS" ]; then
-        echo "Large diff detected! Truncating to ${MAX_DIFF_CHARS} chars"
         DIFF_CONTENT=$(echo "$FULL_DIFF" | head -c ${MAX_DIFF_CHARS})
-        TRUNCATED="(Note: Diff truncated from ${DIFF_CHARS} to ${MAX_DIFF_CHARS} chars)"
+        TRUNCATED=" [Truncated]"
       else
         DIFF_CONTENT="$FULL_DIFF"
         TRUNCATED=""
       fi
 
-      if [ -z "$DIFF_CONTENT" ]; then
-        echo "No diff content. Skipping review."
-        exit 0
-      fi
+      [ -z "$DIFF_CONTENT" ] && exit 0
 
-      echo "Sending to DeepSeek R1 for review..."
+      echo "Requesting AI review..."
 
       # Build prompt
-      if [ "$FILE_COUNT" -gt 50 ]; then
-        REVIEW_MODE="LARGE MR with ${FILE_COUNT} files. Focus on critical security issues, major bugs, architectural concerns only."
-      else
-        REVIEW_MODE="Review for: 1) Security Issues 2) Bugs 3) Performance 4) React/Next.js Best Practices. Be concise."
-      fi
+      PROMPT="Review this Next.js/React/TypeScript code.${TRUNCATED} Reply in markdown: ## Summary (1 line) ## Issues Found (table: Priority|File|Issue) ## Recommendations (max 3 bullets). Focus on: security, bugs, performance. Be concise."
 
-      # Create prompt JSON safely
-      PROMPT_TEXT="You are a senior Next.js/React/TypeScript code reviewer. ${TRUNCATED} ${REVIEW_MODE}"
       REQUEST_JSON=$(jq -n \
         --arg model "$OPENROUTER_MODEL" \
-        --arg prompt "$PROMPT_TEXT" \
+        --arg prompt "$PROMPT" \
         --arg diff "$DIFF_CONTENT" \
         --argjson max_tokens "$MAX_OUTPUT_TOKENS" \
-        '{
-          model: $model,
-          messages: [{role: "user", content: ($prompt + "\n\nGit Diff:\n```diff\n" + $diff + "\n```")}],
-          max_tokens: $max_tokens
-        }')
+        '{model:$model,messages:[{role:"user",content:($prompt+"\n\n```diff\n"+$diff+"\n```")}],max_tokens:$max_tokens}')
 
       RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
         -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
         -H "Content-Type: application/json" \
-        -H "HTTP-Referer: ${CI_PROJECT_URL}" \
-        -H "X-Title: GitLab Code Review" \
         -d "$REQUEST_JSON")
 
       ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
-      if [ -n "$ERROR" ]; then
-        echo "API Error: $ERROR"
-        exit 1
-      fi
+      [ -n "$ERROR" ] && echo "API Error: $ERROR" && exit 1
 
-      REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "No response received"')
-
-      echo ""
-      echo "============================================"
-      echo "           AI CODE REVIEW REPORT           "
-      echo "============================================"
-      echo ""
+      REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "No response"')
       echo "$REVIEW"
-      echo ""
-      echo "============================================"
 
       # Post to MR
       if [ -n "$CI_MERGE_REQUEST_IID" ] && [ -n "$GITLAB_TOKEN" ]; then
-        echo ""
-        echo "========== Posting to GitLab MR =========="
-        echo "MR IID: ${CI_MERGE_REQUEST_IID}"
-        AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN}"
-
-        # 1. Post general comment
-        echo "[1/4] Posting review comment..."
-        COMMENT_BODY=$(printf '## AI Code Review (DeepSeek R1)\n\n%s' "$REVIEW")
-        COMMENT_JSON=$(echo "$COMMENT_BODY" | jq -Rs '{body: .}')
-        curl -s -w "\n%{http_code}" -X POST "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes" -H "${AUTH_HEADER}" -H "Content-Type: application/json" -d "$COMMENT_JSON" | tail -n1 | grep -q 201 && echo "Comment posted" || echo "Comment failed"
-
-        # 2. Get MR changes for inline comments
-        echo "[2/4] Getting MR changes..."
-        CHANGES_RESP=$(curl -s "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/changes" -H "${AUTH_HEADER}")
-        MR_BASE_SHA=$(echo "$CHANGES_RESP" | jq -r '.diff_refs.base_sha // empty')
-        MR_HEAD_SHA=$(echo "$CHANGES_RESP" | jq -r '.diff_refs.head_sha // empty')
-        MR_START_SHA=$(echo "$CHANGES_RESP" | jq -r '.diff_refs.start_sha // empty')
-
-        if [ -n "$MR_BASE_SHA" ]; then
-          # 3. Request inline comments from AI
-          echo "[3/4] Requesting inline comments..."
-          INLINE_PROMPT=$(printf 'Return ONLY a JSON array with file issues: [{"file":"path.ts","line":10,"comment":"issue","severity":"critical"}] or empty array []. Based on: %s' "$REVIEW")
-          INLINE_REQ=$(jq -n --arg model "$OPENROUTER_MODEL" --arg prompt "$INLINE_PROMPT" '{model:$model,messages:[{role:"user",content:$prompt}],max_tokens:2000}') || true
-          INLINE_RESP=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" -H "Authorization: Bearer ${OPENROUTER_API_KEY}" -H "Content-Type: application/json" -d "$INLINE_REQ") || true
-          INLINE_CONTENT=$(echo "$INLINE_RESP" | jq -r '.choices[0].message.content // ""' 2>/dev/null) || true
-          INLINE_JSON=$(echo "$INLINE_CONTENT" | grep -o '\[.*\]' 2>/dev/null | head -1) || true
-
-          if [ -n "$INLINE_JSON" ] && [ "$INLINE_JSON" != "[]" ] && echo "$INLINE_JSON" | jq empty 2>/dev/null; then
-            INLINE_COUNT=$(echo "$INLINE_JSON" | jq 'length' 2>/dev/null) || INLINE_COUNT=0
-            echo "Found $INLINE_COUNT inline comments"
-            echo "$INLINE_JSON" | jq -c '.[]' 2>/dev/null | while read -r item || true; do
-              FPATH=$(echo "$item" | jq -r '.file // ""' 2>/dev/null) || continue
-              LNUM=$(echo "$item" | jq -r '.line // 1' 2>/dev/null) || continue
-              CTXT=$(echo "$item" | jq -r '.comment // ""' 2>/dev/null) || continue
-              SEV=$(echo "$item" | jq -r '.severity // "info"' 2>/dev/null) || SEV="info"
-              [ -z "$FPATH" ] || [ -z "$CTXT" ] && continue
-              case "$SEV" in critical) ICN="Critical";; warning) ICN="Warning";; *) ICN="Info";; esac
-              DISC_JSON=$(jq -n --arg body "**$ICN**: $CTXT" --arg base "$MR_BASE_SHA" --arg head "$MR_HEAD_SHA" --arg start "$MR_START_SHA" --arg path "$FPATH" --arg line "$LNUM" '{body:$body,position:{base_sha:$base,head_sha:$head,start_sha:$start,position_type:"text",new_path:$path,new_line:($line|tonumber)}}') || continue
-              curl -s -X POST "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/discussions" -H "${AUTH_HEADER}" -H "Content-Type: application/json" -d "$DISC_JSON" >/dev/null 2>&1 && echo "  + $FPATH:$LNUM" || echo "  - Skip: $FPATH:$LNUM"
-            done || true
-          else
-            echo "No inline comments needed"
-          fi
-        else
-          echo "Could not get MR changes"
-        fi
-
-        # 4. Update MR description with TODO items
-        echo "[4/4] Updating MR description..."
-        MR_RESP=$(curl -s "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}" -H "${AUTH_HEADER}")
-        CURRENT_DESC=$(echo "$MR_RESP" | jq -r '.description // ""')
-        CLEAN_DESC=$(echo "$CURRENT_DESC" | sed '/<!-- AI_REVIEW_START -->/,/<!-- AI_REVIEW_END -->/d')
-        SUMMARY=$(echo "$REVIEW" | head -c 500)
-        TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-
-        # Extract TODO items from review
-        TODO_ITEMS=""
-        if echo "$REVIEW" | grep -qiE "security|critical|fix|unsafe|xss|injection"; then
-          TODO_ITEMS="$TODO_ITEMS\n- [ ] Fix security/critical issues mentioned above"
-        fi
-        if echo "$REVIEW" | grep -qiE "bug|error|broken"; then
-          TODO_ITEMS="$TODO_ITEMS\n- [ ] Fix bugs mentioned in review"
-        fi
-        if echo "$REVIEW" | grep -qiE "recommend|suggest|should|consider"; then
-          TODO_ITEMS="$TODO_ITEMS\n- [ ] Review recommendations and apply if needed"
-        fi
-        if echo "$REVIEW" | grep -qiE "test|testing"; then
-          TODO_ITEMS="$TODO_ITEMS\n- [ ] Add/update tests"
-        fi
-        [ -z "$TODO_ITEMS" ] && TODO_ITEMS="\n- [x] No action items found"
-
-        UPDATE_JSON=$(jq -n --arg clean "$CLEAN_DESC" --arg summary "$SUMMARY" --arg review "$REVIEW" --arg ts "$TIMESTAMP" --arg todos "$TODO_ITEMS" '{description:($clean+"\n\n<!-- AI_REVIEW_START -->\n---\n## AI Code Review\n\n### TODO\n"+$todos+"\n\n### Summary\n"+$summary+"...\n\n<details>\n<summary>View Full Review</summary>\n\n"+$review+"\n\n</details>\n\n_Updated: "+$ts+" by DeepSeek R1_\n<!-- AI_REVIEW_END -->")}')
-        curl -s -X PUT "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}" -H "${AUTH_HEADER}" -H "Content-Type: application/json" -d "$UPDATE_JSON" | jq -r '.web_url // empty' | grep -q . && echo "MR description updated" || echo "Failed to update MR"
-
-        echo "========== GitLab Integration Complete =========="
-      else
-        echo "Skipping - missing CI_MERGE_REQUEST_IID or GITLAB_TOKEN"
+        echo "Posting to MR..."
+        HEADER="# :robot: AI Code Review\n\n> **Branch:** \`${CI_COMMIT_REF_NAME}\` → \`${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}\`\n> **Files:** ${FILE_COUNT} | **Model:** DeepSeek R1\n\n---\n\n"
+        FOOTER="\n\n---\n<sub>:sparkles: Automated by CI/CD | ${CI_PIPELINE_URL}</sub>"
+        COMMENT_JSON=$(printf "%b%s%b" "$HEADER" "$REVIEW" "$FOOTER" | jq -Rs '{body: .}')
+        HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X POST \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes" \
+          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "$COMMENT_JSON")
+        [ "$HTTP_CODE" = "201" ] && echo "Done!" || echo "Failed ($HTTP_CODE)"
       fi
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
