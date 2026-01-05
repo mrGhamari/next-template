@@ -21,8 +21,8 @@ code-review:
   variables:
     OPENROUTER_MODEL: "deepseek/deepseek-r1"
     GIT_DEPTH: 100
-    MAX_DIFF_CHARS: "60000"
-    MAX_OUTPUT_TOKENS: "2500"
+    MAX_DIFF_CHARS: "80000"
+    MAX_OUTPUT_TOKENS: "4000"
   before_script:
     - apk add --no-cache curl jq git
   script:
@@ -64,8 +64,8 @@ code-review:
 
       echo "Requesting AI review..."
 
-      # Build prompt
-      PROMPT="Review this Next.js/React/TypeScript code.${TRUNCATED} Reply in markdown: ## Summary (1 line) ## Issues Found (table: Priority|File|Issue) ## Recommendations (max 3 bullets). Focus on: security, bugs, performance. Be concise."
+      # Build prompt (single line to avoid YAML issues)
+      PROMPT="You are a senior code reviewer. Review this code diff.${TRUNCATED} Use this markdown format: ## :lock: Security Issues (Problem, Affected Code file:line, Fix with code) ## :bug: Bugs (Problem, Affected Code, Fix) ## :zap: Performance (issues or None) ## :white_check_mark: Best Practices (Positive Changes with checkmarks, Areas for Improvement) ## :rotating_light: Critical Action Items (numbered must-fix list). Be thorough, include file paths and line numbers."
 
       REQUEST_JSON=$(jq -n \
         --arg model "$OPENROUTER_MODEL" \
