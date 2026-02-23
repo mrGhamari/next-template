@@ -1,17 +1,23 @@
+import En from '@/locales/En';
 import Fa from '@/locales/Fa';
-import i18next, { Resource } from 'i18next';
+import type { Resource } from 'i18next';
+import i18next from 'i18next';
 
-const resources: Resource = { fa: { translation: { ...Fa } } };
+const resources: Resource = {
+  en: { translation: { ...En } },
+  fa: { translation: { ...Fa } },
+};
 
 if (!i18next.isInitialized) {
   i18next.init({
     lng: 'fa',
     resources,
     debug: false,
-    fallbackLng: 'fa',
+    fallbackLng: 'en',
   });
 }
 
 export const t = (key: string) => i18next.t(key);
+export const changeLanguage = (lng: 'en' | 'fa') => i18next.changeLanguage(lng);
 
 export default i18next;
