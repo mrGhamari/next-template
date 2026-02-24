@@ -344,11 +344,11 @@ build:feature:
 deploy:staging:
   extends: .deploy-base
   variables:
-    DEPLOY_PATH: /srv/panel-staging
+    DEPLOY_PATH: /srv/next-template-staging
     IMAGE_TAG: staging
     APP_ENV: staging
-    COMPOSE_PROJECT_NAME: trend-panel-staging
-    APP_DOMAIN: panel-stage.trendagency.ir
+    COMPOSE_PROJECT_NAME: next-template-staging
+    APP_DOMAIN: ${APP_DOMAIN}
     PORT: "3000"
     NODE_VERSION: "22-alpine"
     NEXT_PUBLIC_APP_ENV: staging
@@ -358,7 +358,7 @@ deploy:staging:
     - job: build:staging
   environment:
     name: staging
-    url: https://panel-stage.trendagency.ir
+    url: https://${APP_DOMAIN}
 
 # ===========================================
 # Deploy Develop (feature branches - Auto after build)
@@ -366,11 +366,11 @@ deploy:staging:
 deploy:feature:
   extends: .deploy-base
   variables:
-    DEPLOY_PATH: /srv/panel-develop
+    DEPLOY_PATH: /srv/next-template-dev
     IMAGE_TAG: $CI_COMMIT_REF_SLUG
     APP_ENV: development
-    COMPOSE_PROJECT_NAME: trend-panel-dev
-    APP_DOMAIN: panel-develop.trendagency.ir
+    COMPOSE_PROJECT_NAME: next-template-dev
+    APP_DOMAIN: ${APP_DOMAIN}
     PORT: "3000"
     NODE_VERSION: "22-alpine"
     NEXT_PUBLIC_APP_ENV: development
@@ -381,4 +381,4 @@ deploy:feature:
     - job: build:feature
   environment:
     name: feature/$CI_COMMIT_REF_SLUG
-    url: https://panel-develop.trendagency.ir
+    url: https://${APP_DOMAIN}

@@ -1,9 +1,10 @@
-import { Fragment } from 'react/jsx-runtime';
+import { Header } from '@/components/layout/header';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Fragment>
+    <>
+      <Header />
       <main>{children}</main>
-    </Fragment>
+    </>
   );
 }

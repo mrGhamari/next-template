@@ -5,7 +5,7 @@
 
 services:
   web:
-    container_name: ${COMPOSE_PROJECT_NAME:-trend-panel}-dev
+    container_name: ${COMPOSE_PROJECT_NAME:-next-template}-dev
     build:
       context: .
       dockerfile: .docker/dev.Dockerfile
@@ -33,6 +33,6 @@ services:
 
 volumes:
   node_modules:
-    name: ${COMPOSE_PROJECT_NAME:-trend-panel}_node_modules
+    name: ${COMPOSE_PROJECT_NAME:-next-template}_node_modules
   next_cache:
-    name: ${COMPOSE_PROJECT_NAME:-trend-panel}_next_cache
+    name: ${COMPOSE_PROJECT_NAME:-next-template}_next_cache
