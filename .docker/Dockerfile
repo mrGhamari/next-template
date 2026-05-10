@@ -41,9 +41,9 @@ RUN npm run build \
 
 FROM base AS runner
 
-LABEL org.opencontainers.image.title="Trend Panel" \
+LABEL org.opencontainers.image.title="gold store" \
       org.opencontainers.image.description="Next.js frontend application" \
-      org.opencontainers.image.vendor="Trend Agency"
+      org.opencontainers.image.vendor="gold store"
 
 ENV NODE_ENV=production \
     PORT=3000 \

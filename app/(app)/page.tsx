@@ -8,8 +8,8 @@ export default function Home() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
       <div className="bg-card flex w-full max-w-3xl flex-col items-center gap-4 rounded-2xl px-8 py-16 shadow-sm">
-        <h1 className="text-6xl">New next template</h1>
-        <p className="text-2xl">{t('hello')}</p>
+        <h1 className="text-6xl">{t('app_title')}</h1>
+        <p className="text-2xl">{t('app_tagline')}</p>
       </div>
     </div>
   );
